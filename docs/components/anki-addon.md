@@ -1,28 +1,57 @@
-# Anki Add-on 设计
+# Anki Add-on
 
-## 职责边界
+> 状态：已有可安装实现；具体 hook 和线程行为仍须在声明支持的 Anki 版本上实测。
 
-Add-on 是薄适配器，不实现卡型 schema、HTML renderer、导入或数据库逻辑。它负责配对、连接、受管 Note 身份、Anki hook 和同步应用。
+## 定位
 
-## 配对
+Anki Add-on 是 Vocabry 与 Anki collection 之间的薄适配器。它翻译身份和事件，不拥有 Card 领域规则。
 
-用户在 CLI 创建短时一次性配对码，在 Add-on 配置界面输入。Add-on 调用配对端点换取独立 token，并使用 Anki Add-on 配置机制保存。token 可由 CLI 撤销。
+## 职责
 
-## Anki 对象
+- 使用一次性配对码换取独立、可撤销的客户端 token。
+- 创建或验证专用 Note Type：`ExternalCardId`、`Front`、`Back`。
+- 监听受管 Note 的用户修改和删除，并回传 `vocabd`。
+- 在 Anki 允许的主线程/collection 上下文中应用服务事件。
+- 幂等处理事件，成功后 ack，并在重连时执行身份和游标对账。
+- 离线时保存足以保全用户变化的最小观察状态。
 
-Add-on 创建或验证专用 Note Type，字段为 `ExternalCardId`、`Front`、`Back`。模板只负责把字段插入卡片页面和提供基础样式；业务 HTML 已由主应用生成。
+## 非职责
 
-## Hook 行为
+- 不实现卡型 schema、HTML renderer、导入或数据库逻辑。
+- 不清除用户的普通标签或修改非受管字段。
+- 不用本地墙上时钟决定同步冲突。
+- 不把连接失败变成阻塞 Anki 正常复习的故障。
 
-- 监听 Note 保存：仅处理带合法 `ExternalCardId` 的受管 Note；比较最近应用快照，确认是用户修改后回传 HTML。
-- 监听删除：回传受管 ID；若 hook 无法提供完整信息，维护必要的轻量映射以便识别。
-- 应用服务事件：切换到 Anki 允许的主线程/collection 操作上下文，成功后 ack。
+## 交互边界
 
-需要在编码前针对目标 Anki 版本核实稳定 hook API，并把版本兼容矩阵写入 Add-on manifest 文档。
+| 对方 | 输入 | 输出 |
+|---|---|---|
+| `vocabd` | 待同步 revision、配对与对账结果 | 用户变化、ack、Note 身份 |
+| Anki collection | 受管 Note、hooks | Note 创建、更新、删除结果 |
+| 用户 | 配对码、Anki 内编辑 | 非阻塞连接与同步状态 |
 
-## 故障表现
+## 必须保持
 
-- `vocabd` 离线：Anki 正常复习；Add-on 显示非阻塞状态并暂存待回传变化的最小信息。
-- 重连：先发送本地观察到的用户变化，再按 revision/游标对账，避免服务旧值覆盖离线用户编辑。
-- 无效 token：停止写入并提示重新配对，不能无限重试刷日志。
+- [`SYNC-001`](../INVARIANTS.md#sync-001-card-与受管-note-一一映射)
+- [`SYNC-002`](../INVARIANTS.md#sync-002-事件消费幂等)
+- [`SYNC-003`](../INVARIANTS.md#sync-003-成功后才推进游标)
+- [`SYNC-004`](../INVARIANTS.md#sync-004-较旧事件不能覆盖更新的-anki-用户操作)
 
+## 主要故障表现
+
+- `vocabd` 离线：Anki 继续工作；Add-on 显示非阻塞状态并保全待回传变化。
+- token 无效：停止写入并提示重新配对，不能无限重试刷日志。
+- ack 丢失：事件可安全重放。
+- Note ID 漂移：通过 `ExternalCardId` 重新识别并修复映射。
+- hook 能力不足或版本变化：关闭受影响的写入路径并明确报告，不猜测用户操作。
+
+## 修改影响
+
+修改 Note Type、身份规则、hook 或本地观察状态会影响同步协议、迁移和支持版本矩阵。领域规则变化通常只修改 `vocabd`；若需要同时修改 Add-on，应检查是否正在破坏薄适配器边界。
+
+## 进一步入口
+
+- [Anki 同步协议](../protocols/anki-sync.md)
+- [本地 API](../protocols/local-api.md)
+- [ADR-0005：薄 Anki 适配器](../decisions/0005-thin-anki-adapter.md)
+- [验证策略](../quality/verification.md)

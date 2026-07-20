@@ -1,5 +1,7 @@
 # 卡片领域模型
 
+> 文档角色：Card、HTML 和 revision 状态语义的规范来源。关联不变量：`CARD-001/002`、`HTML-001/002`。
+
 ## Card
 
 卡片是系统的核心单位，而不是单词或义项。第一版每张卡关联一个单词；领域模型应允许未来关联少量多个单词，但不得为此提前增加第一版导入字段。
@@ -48,11 +50,11 @@ word, phonetic, definition, example, notes
 1. 导入或修改结构化字段：调用对应内置渲染器，覆盖当前 HTML，`html_origin=renderer`。
 2. Anki 回写 HTML：只替换当前 HTML，保留结构化字段，`html_origin=anki_manual`。
 3. 此后再次修改结构化字段：重新渲染，旧手工 HTML 作废。
-4. 渲染器升级：HTML 标记为陈旧；按需重建。若当前 HTML 来自手工修改，不因单纯版本升级自动覆盖，只有结构化字段变更才覆盖。此条避免软件升级无意抹掉用户操作。
+4. 渲染器升级：`renderer` 来源的 HTML 标记为陈旧，但读取和预览不触发写入；由显式维护任务重建并产生 revision。`anki_manual` 来源的 HTML 不因升级而重建，只有结构化字段变更才覆盖。
 
 ## Revision
 
-每次导入、结构化编辑、自动重渲染、Anki HTML 回写和删除都追加不可变 revision。revision 保存变更后的完整快照、变更来源、原因和服务端提交时间。第一版支持查看，不提供恢复接口。
+导入以及实际改变持久状态的结构化编辑、显式重渲染、Anki HTML 回写和删除都追加不可变 revision；提交相同值或重复删除不产生 revision。revision 保存变更后的完整快照、变更来源、原因和服务端提交时间。第一版支持查看，不提供恢复接口。
 
 ## Source provenance
 
@@ -68,5 +70,4 @@ word, phonetic, definition, example, notes
 
 ## 删除
 
-本地与 Anki 的删除都转换为软删除和新 revision。墓碑保留到所有下游确认删除，且历史长期保留。第一版不做物理清理。
-
+明确的本地或 Anki 删除都转换为软删除和新 revision。墓碑至少保留到当前 Anki 客户端确认删除；历史长期保留，第一版不做物理清理。
