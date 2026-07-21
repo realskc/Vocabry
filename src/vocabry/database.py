@@ -210,7 +210,7 @@ class Database:
 
     def create_cards_for_job(
         self, job_id: str, manifest: dict[str, Any], cards: Sequence[tuple[int, CardInput]]
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         generator = manifest.get("generator") or {}
         with self.transaction() as connection:
             exists = connection.execute("SELECT 1 FROM import_jobs WHERE job_id = ?", (job_id,)).fetchone()
@@ -235,11 +235,20 @@ class Database:
                         "source": manifest.get("source"),
                     },
                 ))
+            result = {
+                "protocol_version": 1,
+                "job_id": job_id,
+                "status": "succeeded",
+                "accepted": len(created),
+                "card_ids": [card["card_id"] for card in created],
+            }
             connection.execute(
-                "UPDATE import_jobs SET status='succeeded', accepted=?, finished_at=? WHERE job_id=?",
-                (len(created), utc_now(), job_id),
+                """UPDATE import_jobs
+                   SET status='succeeded', accepted=?, result_json=?, finished_at=?
+                   WHERE job_id=?""",
+                (len(created), json.dumps(result, ensure_ascii=False), utc_now(), job_id),
             )
-            return created
+            return result
 
     def record_failed_job(self, job_id: str, manifest: dict[str, Any], result: dict[str, Any]) -> None:
         with self.transaction() as connection:
@@ -253,11 +262,38 @@ class Database:
                  json.dumps(result, ensure_ascii=False), utc_now(), utc_now()),
             )
 
-    def set_job_result(self, job_id: str, result: dict[str, Any]) -> None:
-        self.connection.execute(
-            "UPDATE import_jobs SET result_json=? WHERE job_id=?",
-            (json.dumps(result, ensure_ascii=False), job_id),
-        )
+    def recover_job_result(self, job_id: str) -> dict[str, Any] | None:
+        """Rebuild the result left missing by pre-fix successful imports."""
+        with self.transaction() as connection:
+            job = connection.execute(
+                "SELECT status, accepted, result_json FROM import_jobs WHERE job_id=?",
+                (job_id,),
+            ).fetchone()
+            if job is None:
+                raise NotFoundError(f"Job '{job_id}' was not found")
+            if job["result_json"]:
+                return json.loads(job["result_json"])
+            if job["status"] != "succeeded":
+                return None
+            card_ids = [row["card_id"] for row in connection.execute(
+                """SELECT card_id FROM card_sources
+                   WHERE job_id=? ORDER BY line_number, card_id""",
+                (job_id,),
+            ).fetchall()]
+            if len(card_ids) != job["accepted"]:
+                return None
+            result = {
+                "protocol_version": 1,
+                "job_id": job_id,
+                "status": "succeeded",
+                "accepted": job["accepted"],
+                "card_ids": card_ids,
+            }
+            connection.execute(
+                "UPDATE import_jobs SET result_json=? WHERE job_id=?",
+                (json.dumps(result, ensure_ascii=False), job_id),
+            )
+            return result
 
     def get_job(self, job_id: str) -> dict[str, Any]:
         row = self.connection.execute("SELECT * FROM import_jobs WHERE job_id=?", (job_id,)).fetchone()

@@ -18,6 +18,6 @@ $token = (Get-Content -Raw .vocabry\admin.token).Trim()
 Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/api/v1/ingest -Headers @{Authorization="Bearer $token"}
 ```
 
-运行测试：`.\.venv\Scripts\pytest -q`。项目设计和约束见[项目驾驶舱](docs/PROJECT.md)。
+运行测试：`.\.venv\Scripts\pytest -q`。产品介绍、使用方式与技术设计见[项目文档](docs/README.md)。
 
 Anki Add-on 位于 `anki_addon/`；将该目录作为一个 Add-on 安装，启动 `vocabd` 后在 Anki 的“工具”菜单选择 “Pair Vocabry…”。

@@ -71,15 +71,7 @@ class JobImporter:
             return self._archive(processing, "failed", result)
 
         try:
-            created = self.database.create_cards_for_job(job_id, manifest, cards)
-            result = {
-                "protocol_version": 1,
-                "job_id": job_id,
-                "status": "succeeded",
-                "accepted": len(created),
-                "card_ids": [card["card_id"] for card in created],
-            }
-            self.database.set_job_result(job_id, result)
+            result = self.database.create_cards_for_job(job_id, manifest, cards)
             return self._archive(processing, "succeeded", result)
         except DuplicateJobError:
             result = {
@@ -104,7 +96,7 @@ class JobImporter:
                     os.replace(path, target)
                     results.append(self.process(path.name))
                 continue
-            result = job.get("result")
+            result = job.get("result") or self.database.recover_job_result(path.name)
             if result:
                 results.append(self._archive(path, job["status"], result))
         return results
