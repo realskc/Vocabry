@@ -8,7 +8,7 @@
 
 | 字段 | 必填 | 用户看到的内容 |
 |---|---|---|
-| `word` | 是 | 英语单词 |
+| `word` | 是 | 英语单词或词组 |
 | `phonetic` | 否 | 音标 |
 | `definition` | 是 | 释义 |
 | `example` | 否 | 例句 |
@@ -40,7 +40,7 @@
 
 ### 单词查询（`word-query`）
 
-GUI 中的交互式 generator。用户输入一个英语单词后，它使用共享的 DeepSeek API Key 调用 `deepseek-v4-flash`，并显式关闭思考模式：
+GUI 中的交互式 generator。用户输入一个英语单词或词组后，它使用共享的 DeepSeek API Key 调用 `deepseek-v4-flash`；词组可以用 `.` 或 `…` 标记省略部分，例如 `the more ... the more`。模型调用显式关闭思考模式：
 
 1. 在独立 LLM 对话中生成中文解释；
 2. 把解释作为同一对话上下文，追加制卡请求；

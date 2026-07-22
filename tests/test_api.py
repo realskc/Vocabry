@@ -85,7 +85,7 @@ def test_candidate_preview_search_and_shutdown_permissions(tmp_path: Path) -> No
     with TestClient(app) as client:
         health = client.get("/api/v1/health").json()
         assert health | {"database_id": "ignored"} == {
-            "status": "ok", "service": "vocabry", "version": "0.2.0", "api_version": 1,
+            "status": "ok", "service": "vocabry", "version": "0.2.1", "api_version": 1,
             "database_id": "ignored",
         }
         assert health["database_id"]

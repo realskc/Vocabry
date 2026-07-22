@@ -63,7 +63,7 @@ def test_real_word_query_subprocess_emits_unicode_candidate() -> None:
         assert receive(10) == {"type": "hello", "id": "word-query", "protocol_version": 1, "layout": "chat-v1"}
         _send(process, {"type": "initialize", "credentials": {"deepseek": key}})
         assert receive(10)["type"] == "initialized"
-        assert receive(10)["content"] == "请输入一个英语单词。"
+        assert receive(10)["content"] == "请输入一个英语单词或词组。"
 
         task_id = "live-unicode-candidate"
         _send(process, {"type": "user_input", "task_id": task_id, "content": "concise"})

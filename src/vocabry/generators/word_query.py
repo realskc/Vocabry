@@ -16,10 +16,10 @@ from vocabry.models import CardInput
 GENERATOR_ID = "word-query"
 DEEPSEEK_URL = "https://api.deepseek.com/chat/completions"
 MODEL = "deepseek-v4-flash"
-WORD_PATTERN = re.compile(r"[A-Za-z]+(?:['-][A-Za-z]+)*\Z")
+QUERY_PATTERN = re.compile(r"(?=[A-Za-z.'… -]*[A-Za-z])[A-Za-z.'… -]+\Z")
 
-EXPLANATION_PROMPT = """请用中文清晰解释英语单词 {word!r}。如果其可以拆分，请对其进行拆分并简要讲解组成部分（无论是否来自英语）。仅介绍它最常见的本质含义，如果这一本质含义有多种相似、派生、抽象含义（例如 shift 的移动、改变、变化、轮班），均进行介绍。同时介绍其重要的用法细节，并给出一个英文例句。只输出纯文本，不要使用 Markdown，也不要输出 JSON。"""
-CARD_PROMPT = """请把上文的解释作为权威上下文，生成且只生成一张 word_only 词汇卡。只返回一个 JSON 对象，且只能包含以下字符串字段：word、phonetic、definition、example、notes。word 保留英语单词，phonetic 使用标准音标，definition 和 notes 使用中文，example 使用自然的英文例句。不要输出 Markdown 代码围栏或任何额外文字。"""
+EXPLANATION_PROMPT = """请用中文清晰解释英语单词或词组 {word!r}。如果其可以拆分，请对其进行拆分并简要讲解组成部分（无论是否来自英语）。仅介绍它最常见的本质含义，如果这一本质含义有多种相似、派生、抽象含义（例如 shift 的移动、改变、变化、轮班），均进行介绍。同时介绍其重要的用法细节，并给出一个英文例句。只输出纯文本，不要使用 Markdown，也不要输出 JSON。"""
+CARD_PROMPT = """请把上文的解释作为权威上下文，生成且只生成一张 word_only 词汇卡。只返回一个 JSON 对象，且只能包含以下字符串字段：word、phonetic、definition、example、notes。word 保留输入的英语单词或词组，phonetic 使用标准音标，definition 和 notes 使用中文，example 使用自然的英文例句。不要输出 Markdown 代码围栏或任何额外文字。"""
 
 
 class NetworkTimeout(Exception):
@@ -79,7 +79,7 @@ class WordQueryGenerator:
                 raise ValueError("DeepSeek credential is required")
             self.client = DeepSeekClient(key)
             self.writer.send({"type": "initialized"})
-            self.writer.send({"type": "message", "role": "assistant", "content_type": "text", "content": "请输入一个英语单词。"})
+            self.writer.send({"type": "message", "role": "assistant", "content_type": "text", "content": "请输入一个英语单词或词组。"})
             return True
         if kind == "user_input":
             self._start(str(message.get("task_id", "")), message.get("content"))
@@ -110,8 +110,8 @@ class WordQueryGenerator:
             raise ValueError("Generator is not initialized")
         if self.task_id is not None:
             raise ValueError("Another task is active")
-        if not isinstance(content, str) or not WORD_PATTERN.fullmatch(content.strip()):
-            self.writer.send({"type": "message", "role": "assistant", "content_type": "text", "content": "请输入一个英语单词，不要包含空格或其他内容。"})
+        if not isinstance(content, str) or not QUERY_PATTERN.fullmatch(content.strip()):
+            self.writer.send({"type": "message", "role": "assistant", "content_type": "text", "content": "请输入一个英语单词或词组。"})
             self.writer.send({"type": "ready_for_input"})
             return
         self.task_id = task_id
