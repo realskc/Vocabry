@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any
 
-CARD_TYPES = {"standard_definition", "single_definition_word"}
+CARD_TYPES = {"standard_definition", "word_only"}
 FIELD_NAMES = ("word", "phonetic", "definition", "example", "notes")
 
 

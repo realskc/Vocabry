@@ -52,7 +52,7 @@ exchange/
 
 ```json
 {"type":"standard_definition","word":"run","phonetic":"/rʌn/","definition":"经营；管理","example":"She runs a small restaurant.","notes":""}
-{"type":"single_definition_word","word":"concise","definition":"简明的"}
+{"type":"word_only","word":"concise","definition":"简明的"}
 ```
 
 允许用 `type` 或 `card_type` 表示卡型。未知字段会使该行失败。`word` 和 `definition` 是非空字符串，其余字段缺省为空字符串。

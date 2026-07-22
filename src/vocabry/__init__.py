@@ -1,3 +1,8 @@
 """Vocabry local card service."""
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("vocabry")
+except PackageNotFoundError:
+    __version__ = "0+unknown"

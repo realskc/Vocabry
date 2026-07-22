@@ -20,7 +20,8 @@ Anki 的几个术语容易混淆：
 
 | 字段 | 用途 |
 |---|---|
-| `ExternalCardId` | 关联 Vocabry 中的稳定身份 |
+| `VocabryDatabaseId` | 标识 Note 属于哪一个 Vocabry 卡片库 |
+| `ExternalCardId` | 标识卡片库中的具体 Vocabry Card |
 | `Front` | 复习时的问题面 HTML |
 | `Back` | 翻面后的答案面 HTML |
 
@@ -30,16 +31,22 @@ Vocabry 也使用 “Card” 一词，但它表示卡片库中的内容实体，
 
 第一版约定一张 Vocabry Card 对应一个受管 Anki Note，再由这个 Note 生成一张 Anki Card。
 
+每个 Vocabry 卡片库首次创建时会得到一个永久数据库 ID。数据库文件移动后 ID 不变；重新创建数据库会得到新 ID。全量对账用数据库 ID 和卡片 ID 的组合识别正常、重复、孤立及其他卡片库留下的 Note。
+
 ## 两种卡型
+
+当前全部卡型及其 generator 对应关系见[卡型与 Generator](cards-and-generators.md)。
 
 两种卡型使用相同字段，但问题面不同：
 
 | 卡型 | 正面 | 背面 |
 |---|---|---|
 | `standard_definition` | 单词和例句 | 单词、音标、释义、例句、备注 |
-| `single_definition_word` | 单词 | 单词、音标、释义、例句、备注 |
+| `word_only` | 单词 | 单词、音标、释义、例句、备注 |
 
 `word` 和 `definition` 必填，其余字段可以为空。所有字段都被当作纯文本；输入 `<b>word</b>` 不会获得加粗效果，而会按原文字样安全显示。换行会被转换成 HTML 换行。
+
+自动卡面只显示字段内容，不额外显示字段名称；例如例句直接出现，不在前面写 “Example”。
 
 ## 结构化字段与当前 HTML
 

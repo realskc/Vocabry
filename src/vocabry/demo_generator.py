@@ -17,13 +17,13 @@ def create_job(exchange: Path, *, invalid: bool = False) -> str:
         "protocol_version": 1,
         "job_id": job_id,
         "created_at": datetime.now(UTC).isoformat(),
-        "generator": {"name": "vocabry-demo", "version": "0.1.0"},
+        "generator": {"name": "vocabry-demo", "version": "0.2.0"},
         "payload": {"format": "jsonl", "file": "cards.jsonl"},
         "source": {"description": "built-in protocol demonstration"},
     }
     cards = [
         {"type": "standard_definition", "word": "run", "phonetic": "/rʌn/", "definition": "经营；管理", "example": "She runs a small restaurant.", "notes": ""},
-        {"type": "single_definition_word", "word": "concise", "phonetic": "/kənˈsaɪs/", "definition": "简明的", "example": "Keep the answer concise.", "notes": ""},
+        {"type": "word_only", "word": "concise", "phonetic": "/kənˈsaɪs/", "definition": "简明的", "example": "Keep the answer concise.", "notes": ""},
     ]
     if invalid:
         cards[1].pop("definition")

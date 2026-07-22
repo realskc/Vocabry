@@ -1,0 +1,9 @@
+{
+  "id": "word-query",
+  "name": "单词查询",
+  "version": "0.2.0",
+  "protocol_version": 1,
+  "layout": "chat-v1",
+  "module": "vocabry.generators.word_query",
+  "required_credentials": ["deepseek"]
+}

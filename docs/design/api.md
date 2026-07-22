@@ -34,16 +34,24 @@ WebSocket 同样从 Authorization header 认证。当前客户端类型有 `admi
 | `GET/PATCH/DELETE /api/v1/cards/{id}` | 任意 token | 读取、修改或软删除 |
 | `GET /api/v1/cards/{id}/history` | 任意 token | 完整 revision 列表 |
 | `POST /api/v1/preview/sessions` | 任意 token | 为指定 Card 创建 10 分钟 session |
+| `POST /api/v1/preview/candidate` | admin | 校验并渲染未持久化的结构化候选卡 |
+| `POST /api/v1/admin/shutdown` | admin | 请求 GUI 所拥有的服务优雅退出 |
 | `GET /preview/{card_id}` | preview session | 只读 HTML 预览 |
 | `GET /api/v1/sync/status` | 任意 token | 当前客户端 cursor 和全部 Anki mappings |
-| `POST /api/v1/sync/reconcile` | 任意 token | 当前仅返回 `scheduled`，没有实际任务 |
+| `POST /api/v1/sync/reconcile` | admin | 创建持久化全量对账任务 |
+| `GET /api/v1/sync/reconcile/{id}` | admin | 查询 inventory、报告、计划和执行结果 |
+| `POST /api/v1/sync/reconcile/{id}/execute|cancel` | admin | 明确批准或取消对账计划 |
+| `GET /api/v1/anki/reconcile/pending` | anki | 领取 inventory 或 execute 命令 |
+| `POST /api/v1/anki/reconcile/{id}/inventory|complete` | anki | 提交 collection 盘点或执行结果 |
 | `POST /api/v1/anki/changes` | anki | 回写 HTML、删除或 missing 状态 |
 | `POST /api/v1/pairing/codes` | admin | 创建 5 分钟一次性配对码 |
-| `POST /api/v1/pairing/exchange` | 无 | 消费配对码，得到 Anki token |
+| `POST /api/v1/pairing/exchange` | 无 | 消费配对码，得到 Anki token、client ID 和 database ID |
 | `DELETE /api/v1/clients/{id}` | admin | 撤销非 admin 客户端 |
 | `WS /api/v1/events` | 任意 token | 顺序消费 outbox 事件 |
 
 “任意 token”是当前代码事实，不代表最终最小权限模型。特别是 Anki token 当前也能调用 Card CRUD、读取 history、创建 preview session 和查看全部 mappings。若产品要求真正隔离权限，应先定义 capability，再收紧依赖并补测试。
+
+桌面 GUI 通过 admin 权限调用 pairing code 端点，并在首页向用户展示配对码；Key 或 token 不经过剪贴板协议自动传给 Anki。Add-on 消费新配对码后必须把旧数据库的本地 cursor 和 mappings 重置，具体原因见 [Anki 同步](anki-sync.md)。
 
 ## 创建幂等性
 
@@ -96,6 +104,10 @@ PATCH、DELETE 和 Anki 回写必须携带 `expected_revision`。数据库在写
 预览 session 与 Card 绑定，数据库只存 hash，10 分钟后失效。预览页把当前 HTML 放进无 `allow-*` 权限的 sandbox iframe，并将 HTML 转义后写入 `srcdoc` 属性。响应还设置 `nosniff`、`no-referrer` 和限制性 CSP。
 
 当前没有 session 撤销或过期记录清理。任何增加脚本、表单、外部资源或管理操作的改动都会改变安全边界，不能当作普通页面增强。
+
+候选预览不创建 Card、revision 或 outbox event。它与 Card 创建复用 `CardInput` 和 renderer，返回正反面 HTML 供 GUI 静态并排展示。GUI 不接受 generator 自带 HTML。
+
+shutdown 端点只负责发出退出请求；实际 Uvicorn server 在返回 `202` 后停止。GUI 必须等待自己启动的服务 PID 确实退出，不能仅凭 HTTP 响应结束自身。
 
 ## 尚未满足的安全目标
 

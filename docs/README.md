@@ -6,6 +6,7 @@
 |---|---|---|
 | [`product/`](product/README.md) | 用户、产品参与者、不熟悉实现的人 | 产品为何存在、怎样使用、Anki 与卡片概念 |
 | [`design/`](design/README.md) | 维护者、Coding Agent | 跨模块技术语义、数据状态机、协议边界和设计原因 |
+| [`archive/`](archive/README.md) | 维护者、历史查阅者 | 版本记录与历史设计决策归档 |
 | `docs/` 根目录 | 所有人 | 文档导航、当前实现状态等仓库级元信息 |
 
 ## 推荐阅读
@@ -14,15 +15,23 @@
 
 1. [产品介绍](product/README.md)
 2. [核心概念](product/concepts.md)
-3. [使用流程](product/workflows.md)
-4. [当前状态](STATUS.md)
+3. [卡型与 Generator](product/cards-and-generators.md)
+4. [使用流程](product/workflows.md)
+5. [当前状态](STATUS.md)
+
+查阅版本历史：
+
+1. [文档归档](archive/README.md)
+2. 对应版本文档中的历史目标、取舍与验收记录
+3. 当前产品和技术事实仍回到 `product/` 与 `design/` 查阅
 
 准备修改代码：
 
 1. [技术设计导航](design/README.md)
 2. 与任务相关的 data model、import、API 或 Anki sync 文档
-3. [设计决策记录](design/decisions/README.md)
-4. 对应实现与测试
+3. [开发规范](development.md)
+4. [历史设计决策](archive/decisions/README.md)
+5. 对应实现与测试
 
 ## 收录标准
 
@@ -43,8 +52,4 @@
 
 ## 维护方式
 
-- 产品语义改变时更新 `product/`，实现细节改变时更新 `design/`。
-- 只有跨多个模块、长期影响选择的变化才新增 ADR。
-- 精确字段、端点和物理 schema 以代码与生成的 OpenAPI 为事实源，文档解释其语义与风险。
-- 删除过时文档优于保留多个“可能仍有用”的版本；Git 历史负责归档旧文字。
-- 新文档应链接现有主题，避免再造组件卡、协议索引或独立不变量目录。
+开发和文档更新规则见[开发规范](development.md)。只有跨多个模块、长期影响后续选择，并且经过用户确认的变化才新增 ADR。

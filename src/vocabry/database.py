@@ -115,6 +115,21 @@ CREATE TABLE IF NOT EXISTS anki_note_mappings (
     sync_status TEXT NOT NULL DEFAULT 'pending',
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS metadata (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS reconciliation_requests (
+    request_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    client_id TEXT,
+    inventory_json TEXT,
+    report_json TEXT,
+    plan_json TEXT,
+    result_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -129,6 +144,43 @@ class Database:
         self.connection.execute("PRAGMA journal_mode = WAL")
         self.connection.execute("PRAGMA busy_timeout = 5000")
         self.connection.executescript(SCHEMA)
+        self._ensure_database_id()
+        self._migrate_legacy_card_types()
+
+    def _ensure_database_id(self) -> None:
+        self.connection.execute(
+            "INSERT OR IGNORE INTO metadata(key,value) VALUES ('database_id', ?)",
+            (str(uuid.uuid4()),),
+        )
+
+    @property
+    def database_id(self) -> str:
+        row = self.connection.execute("SELECT value FROM metadata WHERE key='database_id'").fetchone()
+        assert row is not None
+        return str(row["value"])
+
+    def _migrate_legacy_card_types(self) -> None:
+        card_ids = [
+            row["card_id"]
+            for row in self.connection.execute(
+                "SELECT card_id FROM cards WHERE card_type='single_definition_word' ORDER BY card_id"
+            ).fetchall()
+        ]
+        for card_id in card_ids:
+            with self.transaction() as connection:
+                connection.execute(
+                    "UPDATE cards SET card_type='word_only', revision=revision+1, updated_at=? WHERE card_id=?",
+                    (utc_now(), card_id),
+                )
+                updated = connection.execute("SELECT * FROM cards WHERE card_id=?", (card_id,)).fetchone()
+                assert updated is not None
+                self._record_change(
+                    connection,
+                    updated,
+                    source="migration",
+                    reason="card_type_rename",
+                    event_type="card.updated",
+                )
 
     def close(self) -> None:
         self.connection.close()
@@ -323,6 +375,16 @@ class Database:
         ).fetchall()
         return [self._snapshot(row) for row in rows]
 
+    def find_cards_by_word(self, word: str, *, limit: int = 20) -> list[dict[str, Any]]:
+        normalized = word.strip().casefold()
+        if not normalized:
+            return []
+        rows = self.connection.execute(
+            "SELECT * FROM cards WHERE deleted_at IS NULL ORDER BY created_at, card_id"
+        ).fetchall()
+        matches = [row for row in rows if json.loads(row["structured_fields"])["word"].strip().casefold() == normalized]
+        return [self._snapshot(row) for row in matches[: min(max(limit, 1), 100)]]
+
     def update_card(self, card_id: str, expected_revision: int, changes: dict[str, Any], *, source: str = "api") -> dict[str, Any]:
         with self.transaction() as connection:
             row = connection.execute("SELECT * FROM cards WHERE card_id=?", (card_id,)).fetchone()
@@ -482,6 +544,177 @@ class Database:
         return [dict(row) for row in self.connection.execute(
             "SELECT * FROM anki_note_mappings ORDER BY updated_at DESC"
         ).fetchall()]
+
+    def create_reconciliation(self) -> dict[str, Any]:
+        request_id = str(uuid.uuid4())
+        now = utc_now()
+        self.connection.execute(
+            "INSERT INTO reconciliation_requests(request_id,status,created_at,updated_at) VALUES (?, 'waiting_inventory', ?, ?)",
+            (request_id, now, now),
+        )
+        return self.get_reconciliation(request_id)
+
+    def get_reconciliation(self, request_id: str) -> dict[str, Any]:
+        row = self.connection.execute(
+            "SELECT * FROM reconciliation_requests WHERE request_id=?", (request_id,)
+        ).fetchone()
+        if row is None:
+            raise NotFoundError(f"Reconciliation '{request_id}' was not found")
+        result = dict(row)
+        for name in ("inventory_json", "report_json", "plan_json", "result_json"):
+            raw = result.pop(name)
+            result[name.removesuffix("_json")] = json.loads(raw) if raw else None
+        result["database_id"] = self.database_id
+        return result
+
+    def pending_reconciliation(self, client_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            """SELECT request_id,status,plan_json FROM reconciliation_requests
+               WHERE status IN ('waiting_inventory','approved')
+               AND (client_id IS NULL OR client_id=?) ORDER BY created_at LIMIT 1""",
+            (client_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        if row["status"] == "waiting_inventory":
+            return {"command": "inventory", "request_id": row["request_id"], "database_id": self.database_id}
+        return {
+            "command": "execute",
+            "request_id": row["request_id"],
+            "database_id": self.database_id,
+            "plan": json.loads(row["plan_json"]),
+        }
+
+    def submit_reconciliation_inventory(
+        self, request_id: str, client_id: str, inventory: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        cards = {
+            row["card_id"]: self._snapshot(row)
+            for row in self.connection.execute("SELECT * FROM cards ORDER BY card_id").fetchall()
+        }
+        mappings = {
+            row["card_id"]: row["note_id"]
+            for row in self.connection.execute("SELECT card_id,note_id FROM anki_note_mappings").fetchall()
+            if row["note_id"] is not None
+        }
+        report, plan = self._build_reconciliation(cards, mappings, inventory)
+        now = utc_now()
+        cursor = self.connection.execute(
+            """UPDATE reconciliation_requests SET status='ready',client_id=?,inventory_json=?,
+               report_json=?,plan_json=?,updated_at=?
+               WHERE request_id=? AND status='waiting_inventory'""",
+            (client_id, json.dumps(inventory), json.dumps(report), json.dumps(plan), now, request_id),
+        )
+        if cursor.rowcount == 0:
+            raise RevisionConflictError("Reconciliation is no longer waiting for inventory")
+        return self.get_reconciliation(request_id)
+
+    def _build_reconciliation(
+        self,
+        cards: dict[str, dict[str, Any]],
+        mappings: dict[str, int],
+        inventory: list[dict[str, Any]],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        current = self.database_id
+        eligible: dict[str, list[dict[str, Any]]] = {}
+        delete_reasons: dict[int, str] = {}
+        foreign = 0
+        orphan = 0
+        deleted = 0
+        for item in inventory:
+            note_id = int(item["note_id"])
+            card_id = str(item.get("card_id", "")).strip()
+            owner = str(item.get("database_id", "")).strip()
+            if owner not in {"", current}:
+                delete_reasons[note_id] = "foreign_database"
+                foreign += 1
+            elif card_id not in cards:
+                delete_reasons[note_id] = "orphan"
+                orphan += 1
+            elif cards[card_id]["deleted_at"] is not None:
+                delete_reasons[note_id] = "deleted_card"
+                deleted += 1
+            else:
+                eligible.setdefault(card_id, []).append(item)
+
+        upserts: list[dict[str, Any]] = []
+        duplicates = 0
+        missing = 0
+        legacy_adoptions = 0
+        for card_id, card in cards.items():
+            if card["deleted_at"] is not None:
+                continue
+            candidates = eligible.get(card_id, [])
+            preferred = mappings.get(card_id)
+            canonical = next((item for item in candidates if item["note_id"] == preferred), None)
+            if canonical is None and candidates:
+                canonical = min(candidates, key=lambda item: int(item["note_id"]))
+            if canonical is None:
+                missing += 1
+            elif not str(canonical.get("database_id", "")).strip():
+                legacy_adoptions += 1
+            for item in candidates:
+                if canonical is not None and item["note_id"] != canonical["note_id"]:
+                    delete_reasons[int(item["note_id"])] = "duplicate"
+                    duplicates += 1
+            upserts.append({
+                "note_id": canonical["note_id"] if canonical else None,
+                "card_id": card_id,
+                "database_id": current,
+                "revision": card["revision"],
+                "front_html": card["front_html"],
+                "back_html": card["back_html"],
+            })
+        report = {
+            "anki_notes": len(inventory),
+            "active_cards": sum(card["deleted_at"] is None for card in cards.values()),
+            "missing": missing,
+            "legacy_adoptions": legacy_adoptions,
+            "duplicates": duplicates,
+            "deleted_card_notes": deleted,
+            "orphans": orphan,
+            "foreign_database_notes": foreign,
+            "delete_count": len(delete_reasons),
+        }
+        plan = {
+            "upserts": upserts,
+            "deletions": [
+                {"note_id": note_id, "reason": reason}
+                for note_id, reason in sorted(delete_reasons.items())
+            ],
+        }
+        return report, plan
+
+    def approve_reconciliation(self, request_id: str) -> dict[str, Any]:
+        cursor = self.connection.execute(
+            "UPDATE reconciliation_requests SET status='approved',updated_at=? WHERE request_id=? AND status='ready'",
+            (utc_now(), request_id),
+        )
+        if cursor.rowcount == 0:
+            raise RevisionConflictError("Reconciliation is not ready for approval")
+        return self.get_reconciliation(request_id)
+
+    def cancel_reconciliation(self, request_id: str) -> dict[str, Any]:
+        cursor = self.connection.execute(
+            """UPDATE reconciliation_requests SET status='cancelled',updated_at=?
+               WHERE request_id=? AND status IN ('waiting_inventory','ready')""",
+            (utc_now(), request_id),
+        )
+        if cursor.rowcount == 0:
+            raise RevisionConflictError("Reconciliation can no longer be cancelled")
+        return self.get_reconciliation(request_id)
+
+    def complete_reconciliation(self, request_id: str, client_id: str, result: dict[str, Any]) -> dict[str, Any]:
+        request = self.get_reconciliation(request_id)
+        if request["status"] != "approved" or request["client_id"] != client_id:
+            raise RevisionConflictError("Reconciliation is not approved for this Anki client")
+        for item in result.get("mappings", []):
+            self.record_anki_application(item["card_id"], item["revision"], item["note_id"])
+        self.connection.execute(
+            "UPDATE reconciliation_requests SET status='completed',result_json=?,updated_at=? WHERE request_id=?",
+            (json.dumps(result), utc_now(), request_id),
+        )
+        return self.get_reconciliation(request_id)
 
     def create_client(self, name: str, kind: str) -> tuple[str, str]:
         client_id, token = str(uuid.uuid4()), secrets.token_urlsafe(32)

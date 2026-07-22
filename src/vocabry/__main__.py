@@ -22,7 +22,11 @@ def main() -> None:
         print(f"database={'present' if settings.database_path.exists() else 'missing'}")
         print(f"token={'present' if settings.token_path.exists() else 'missing'}")
         return
-    uvicorn.run(create_app(settings), host=settings.host, port=settings.port, log_level="info")
+    app = create_app(settings)
+    config = uvicorn.Config(app, host=settings.host, port=settings.port, log_level="info")
+    server = uvicorn.Server(config)
+    app.state.shutdown_callback = lambda: setattr(server, "should_exit", True)
+    server.run()
 
 
 if __name__ == "__main__":

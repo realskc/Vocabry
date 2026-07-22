@@ -21,9 +21,11 @@
 
 ## 卡型与渲染
 
-第一版支持 `standard_definition`（正面为单词和例句）与 `single_definition_word`（正面仅单词）。两种卡型的背面都包含非空的单词、音标、释义、例句和备注。
+当前支持 `standard_definition`（正面为单词和例句）与 `word_only`（正面仅单词）。两种卡型的背面都包含非空的单词、音标、释义、例句和备注。旧数据库中的 `single_definition_word` 在打开时迁移为 `word_only`，产生新的 revision 与 outbox update；历史 revision 快照仍保留提交时的旧名称。
 
 `word`、`definition` 必填，所有字段必须是字符串。renderer 先 HTML 转义，再把换行变成 `<br>`；相同输入必须产生相同 HTML 和 input hash。
+
+自动 HTML 不显示 `Example`、`Pronunciation`、`Definition`、`Notes` 等字段名。卡面顺序和样式已经表达内容角色，可见标签只会占用复习空间；renderer 仅保留不可见的语义 CSS class 供布局使用。改变这一输出需要增加 renderer version，使既有 `html_origin=renderer` 卡片能够显式重渲染，同时不能覆盖 `anki_manual` HTML。
 
 新增卡型或字段不是只改一个常量：还要定义旧数据兼容、渲染结果、API schema、离线格式以及 Add-on 是否仍只需要 `Front`/`Back`。
 
@@ -71,12 +73,14 @@
 
 ## 客户端与同步辅助表
 
+- `metadata` 保存数据库级永久元数据；当前 `database_id` 在首次打开时生成 UUID，复制或移动数据库文件不会改变它。
 - `api_clients` 保存客户端元数据和 SHA-256 token hash，不保存明文 token。
 - `pairing_codes` 保存一次性 code hash、过期时间和使用时间。
 - `preview_sessions` 保存短时 session hash、允许访问的 card ID 和过期时间。
 - `idempotency_keys` 按 `(client_id, key)` 缓存创建请求 hash 与响应。
 - `anki_note_mappings` 保存 Anki `note_id`、已推送 revision 与状态；`note_id` 唯一。
 - `client_cursors` 保存每个客户端已连续 ack 的全局事件 ID。
+- `reconciliation_requests` 持久保存全量 Anki 对账的 inventory、分类报告、执行计划、结果和状态。状态依次为 `waiting_inventory`、`ready`、`approved`、`completed`，也可在执行前进入 `cancelled`。
 
 这些表和 outbox 当前都没有清理机制。新增清理任务前要定义 retention，不能删除仍用于请求重放判断或同步恢复的数据。
 
